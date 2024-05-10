@@ -11,6 +11,8 @@ void deleteFile(GtkWidget *, gpointer);
 void createDirectory(GtkWidget *, gpointer);
 void deleteDirectory(GtkWidget *, gpointer);
 void createSymbolicLink(GtkWidget *, gpointer);
+void moveFile(GtkWidget *, gpointer);
+void copyFile(GtkWidget *, gpointer);
 void checkReturnCode(int);
 
 static void activate(GtkApplication *app, gpointer user_data);
@@ -24,7 +26,7 @@ int main(int argc, char **argv)
     printf("File manager app\n");
     printf("Available options\n1-List files\\Directories\n2-Change file "
            "permissions\n3-Create file\\Directory\n4-Delete "
-           "File\\Directory\n5-Create symbolic link\n");
+           "File\\Directory\n5-Create symbolic link\n6-Move File\n7-Copy File\n");
     return 0;
   }
   else if (argc > 1)
@@ -111,8 +113,16 @@ static void activate(GtkApplication *app, gpointer user_data)
     g_signal_connect(button, "clicked", G_CALLBACK(createSymbolicLink), window);
     gtk_grid_attach(GTK_GRID(grid), button, 0, 6, 1, 1);
 
+    button = gtk_button_new_with_label("Move File");
+    g_signal_connect(button, "clicked", G_CALLBACK(moveFile), window);
+    gtk_grid_attach(GTK_GRID(grid), button, 0, 7, 1, 1);
+
+    button = gtk_button_new_with_label("Copy File");
+    g_signal_connect(button, "clicked", G_CALLBACK(copyFile), window);
+    gtk_grid_attach(GTK_GRID(grid), button, 0, 8, 1, 1);
+
     label = gtk_label_new("");
-    gtk_grid_attach(GTK_GRID(grid), label, 0, 7, 1, 1);
+    gtk_grid_attach(GTK_GRID(grid), label, 0, 9, 1, 1);
   }
 
   gtk_widget_destroy(dialog); // Destroy the dialog after obtaining the path
@@ -122,83 +132,53 @@ static void activate(GtkApplication *app, gpointer user_data)
 
 void listFiles(GtkWidget *widget, gpointer window)
 {
-  GtkWidget *dialog;
-  GtkWidget *file_entry;
-  GtkWidget *content_area;
-  const gchar *path;
-  gint result;
   gchar buffer[1024];
 
-  dialog = gtk_dialog_new_with_buttons("Set Path", GTK_WINDOW(window),
-                                       GTK_DIALOG_MODAL, "OK", GTK_RESPONSE_OK,
-                                       "Cancel", GTK_RESPONSE_CANCEL, NULL);
+  // Construct ls command with the file_path
+  gchar ls_command[1024];
+  snprintf(ls_command, sizeof(ls_command), "ls %s", file_path);
 
-  content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
-
-  file_entry = gtk_entry_new();
-  gtk_container_add(GTK_CONTAINER(content_area), gtk_label_new("Enter Path: "));
-  gtk_container_add(GTK_CONTAINER(content_area), file_entry);
-
-  gtk_widget_show_all(dialog);
-
-  result = gtk_dialog_run(GTK_DIALOG(dialog));
-  if (result == GTK_RESPONSE_OK)
+  // Open pipe to execute ls command
+  FILE *fp = popen(ls_command, "r");
+  if (fp == NULL)
   {
-    path = gtk_entry_get_text(GTK_ENTRY(file_entry));
-
-    // Construct ls command with the entered path
-    gchar ls_command[1024];
-    snprintf(ls_command, sizeof(ls_command), "ls %s/%s", file_path, path);
-
-    // Open pipe to execute ls command
-    FILE *fp = popen(ls_command, "r");
-    if (fp == NULL)
-    {
-      perror("Error executing ls");
-      gtk_widget_destroy(dialog);
-      return;
-    }
-
-    // Create list window
-    GtkWidget *list_window;
-    GtkWidget *list_view;
-    GtkListStore *list_store;
-    GtkTreeIter iter;
-    GtkWidget *list_scrolled_window;
-
-    list_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-    gtk_window_set_title(GTK_WINDOW(list_window), "List Files/Directories");
-    gtk_window_set_default_size(GTK_WINDOW(list_window), 300, 200);
-
-    list_store = gtk_list_store_new(1, G_TYPE_STRING);
-    list_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(list_store));
-    list_scrolled_window = gtk_scrolled_window_new(NULL, NULL);
-    gtk_container_add(GTK_CONTAINER(list_scrolled_window), list_view);
-    gtk_container_add(GTK_CONTAINER(list_window), list_scrolled_window);
-
-    GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
-    GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes(
-        "Files", renderer, "text", 0, NULL);
-    gtk_tree_view_append_column(GTK_TREE_VIEW(list_view), column);
-
-    // Read output of ls command and add files to list store
-    while (fgets(buffer, sizeof(buffer), fp) != NULL)
-    {
-      buffer[strlen(buffer) - 1] = '\0'; // Remove newline character
-      gtk_list_store_append(list_store, &iter);
-      gtk_list_store_set(list_store, &iter, 0, buffer, -1);
-    }
-
-    pclose(fp);
-
-    gtk_widget_show_all(list_window);
-
-    gtk_widget_destroy(dialog);
+    perror("Error executing ls");
+    return;
   }
-  else
+
+  // Create list window
+  GtkWidget *list_window;
+  GtkWidget *list_view;
+  GtkListStore *list_store;
+  GtkTreeIter iter;
+  GtkWidget *list_scrolled_window;
+
+  list_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_window_set_title(GTK_WINDOW(list_window), "List Files/Directories");
+  gtk_window_set_default_size(GTK_WINDOW(list_window), 300, 200);
+
+  list_store = gtk_list_store_new(1, G_TYPE_STRING);
+  list_view = gtk_tree_view_new_with_model(GTK_TREE_MODEL(list_store));
+  list_scrolled_window = gtk_scrolled_window_new(NULL, NULL);
+  gtk_container_add(GTK_CONTAINER(list_scrolled_window), list_view);
+  gtk_container_add(GTK_CONTAINER(list_window), list_scrolled_window);
+
+  GtkCellRenderer *renderer = gtk_cell_renderer_text_new();
+  GtkTreeViewColumn *column = gtk_tree_view_column_new_with_attributes(
+      "Files", renderer, "text", 0, NULL);
+  gtk_tree_view_append_column(GTK_TREE_VIEW(list_view), column);
+
+  // Read output of ls command and add files to list store
+  while (fgets(buffer, sizeof(buffer), fp) != NULL)
   {
-    gtk_widget_destroy(dialog);
+    buffer[strlen(buffer) - 1] = '\0'; // Remove newline character
+    gtk_list_store_append(list_store, &iter);
+    gtk_list_store_set(list_store, &iter, 0, buffer, -1);
   }
+
+  pclose(fp);
+
+  gtk_widget_show_all(list_window);
 }
 
 void changePermissions(GtkWidget *widget, gpointer window)
@@ -251,7 +231,10 @@ void changePermissions(GtkWidget *widget, gpointer window)
     // Set permissions using chmod
     char full_path[200];
     snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
-    if (chmod(full_path, mode) != 0)
+    char command[1024];
+    snprintf(command, sizeof(command), "chmod %o %s", mode, full_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("chmod");
     }
@@ -269,7 +252,6 @@ void createFile(GtkWidget *widget, gpointer window)
   GtkWidget *dialog;
   GtkWidget *file_entry;
   const gchar *filename;
-  FILE *file;
 
   dialog = gtk_dialog_new_with_buttons("Create File", GTK_WINDOW(window),
                                        GTK_DIALOG_MODAL, "OK", GTK_RESPONSE_OK,
@@ -287,14 +269,15 @@ void createFile(GtkWidget *widget, gpointer window)
     filename = gtk_entry_get_text(GTK_ENTRY(file_entry));
     char full_path[200];
     snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
-    file = fopen(full_path, "w");
-    if (file == NULL)
+    char command[1024];
+    snprintf(command, sizeof(command), "touch %s", full_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("Error creating file");
     }
     else
     {
-      fclose(file);
       g_print("File created successfully.\n");
     }
   }
@@ -324,7 +307,10 @@ void deleteFile(GtkWidget *widget, gpointer window)
     filename = gtk_entry_get_text(GTK_ENTRY(file_entry));
     char full_path[200];
     snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
-    if (remove(full_path) != 0)
+    char command[1024];
+    snprintf(command, sizeof(command), "rm -f %s", full_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("Error deleting file");
     }
@@ -359,7 +345,10 @@ void createDirectory(GtkWidget *widget, gpointer window)
     dirname = gtk_entry_get_text(GTK_ENTRY(dir_entry));
     char full_path[200];
     snprintf(full_path, sizeof(full_path), "%s/%s", file_path, dirname);
-    if (mkdir(full_path, 0777) != 0)
+    char command[1024];
+    snprintf(command, sizeof(command), "mkdir -p %s", full_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("Error creating directory");
     }
@@ -394,7 +383,10 @@ void deleteDirectory(GtkWidget *widget, gpointer window)
     dirname = gtk_entry_get_text(GTK_ENTRY(dir_entry));
     char full_path[200];
     snprintf(full_path, sizeof(full_path), "%s/%s", file_path, dirname);
-    if (rmdir(full_path) != 0)
+    char command[1024];
+    snprintf(command, sizeof(command), "rm -rf %s", full_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("Error deleting directory");
     }
@@ -410,41 +402,37 @@ void deleteDirectory(GtkWidget *widget, gpointer window)
 void createSymbolicLink(GtkWidget *widget, gpointer window)
 {
   GtkWidget *dialog;
-  GtkWidget *target_entry;
-  GtkWidget *link_entry;
-  const gchar *targetname;
-  const gchar *linkname;
+  GtkWidget *file_entry, *link_entry;
+  const gchar *filename, *linkname;
 
-  dialog = gtk_dialog_new_with_buttons(
-      "Create Symbolic Link", GTK_WINDOW(window), GTK_DIALOG_MODAL, "OK",
-      GTK_RESPONSE_OK, "Cancel", GTK_RESPONSE_CANCEL, NULL);
+  dialog = gtk_dialog_new_with_buttons("Create Symbolic Link", GTK_WINDOW(window),
+                                       GTK_DIALOG_MODAL, "OK", GTK_RESPONSE_OK,
+                                       "Cancel", GTK_RESPONSE_CANCEL, NULL);
 
-  target_entry = gtk_entry_new();
+  file_entry = gtk_entry_new();
   link_entry = gtk_entry_new();
-  gtk_container_add(
-      GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
-      gtk_label_new("Enter target filename: "));
-  gtk_container_add(
-      GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
-      target_entry);
-  gtk_container_add(
-      GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
-      gtk_label_new("Enter symbolic link name: "));
-  gtk_container_add(
-      GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
-      link_entry);
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter filename: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    file_entry);
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter linkname: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    link_entry);
 
   gtk_widget_show_all(dialog);
 
   if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
   {
-    targetname = gtk_entry_get_text(GTK_ENTRY(target_entry));
+    filename = gtk_entry_get_text(GTK_ENTRY(file_entry));
     linkname = gtk_entry_get_text(GTK_ENTRY(link_entry));
-    char full_target_path[200];
-    char full_link_path[200];
-    snprintf(full_target_path, sizeof(full_target_path), "%s/%s", file_path, targetname);
-    snprintf(full_link_path, sizeof(full_link_path), "%s/%s", file_path, linkname);
-    if (symlink(full_target_path, full_link_path) != 0)
+    char full_path[200], full_link_path[200];
+    snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
+    snprintf(full_link_path, sizeof(full_link_path), "%s", linkname);
+    char command[1024];
+    snprintf(command, sizeof(command), "ln -s %s %s", full_path, full_link_path);
+    int ret = system(command);
+    if (ret != 0)
     {
       perror("Error creating symbolic link");
     }
@@ -457,22 +445,106 @@ void createSymbolicLink(GtkWidget *widget, gpointer window)
   gtk_widget_destroy(dialog);
 }
 
-void checkReturnCode(int returnCode)
+void moveFile(GtkWidget *widget, gpointer window)
 {
-  if (returnCode == -1)
+  GtkWidget *dialog;
+  GtkWidget *file_entry, *dest_entry;
+  const gchar *filename, *destination;
+
+  dialog = gtk_dialog_new_with_buttons("Move File", GTK_WINDOW(window),
+                                       GTK_DIALOG_MODAL, "OK", GTK_RESPONSE_OK,
+                                       "Cancel", GTK_RESPONSE_CANCEL, NULL);
+
+  file_entry = gtk_entry_new();
+  dest_entry = gtk_entry_new();
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter filename: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    file_entry);
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter destination: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    dest_entry);
+
+  gtk_widget_show_all(dialog);
+
+  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
   {
-    GtkWidget *error_dialog = gtk_message_dialog_new(
-        NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK,
-        "Error: Failed to execute command!");
-    gtk_dialog_run(GTK_DIALOG(error_dialog));
-    gtk_widget_destroy(error_dialog);
+    filename = gtk_entry_get_text(GTK_ENTRY(file_entry));
+    destination = gtk_entry_get_text(GTK_ENTRY(dest_entry));
+    char full_path[200], full_dest_path[200];
+    snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
+    snprintf(full_dest_path, sizeof(full_dest_path), "%s", destination);
+    char command[1024];
+    snprintf(command, sizeof(command), "mv %s %s", full_path, full_dest_path);
+    int ret = system(command);
+    if (ret != 0)
+    {
+      perror("Error moving file");
+    }
+    else
+    {
+      g_print("File moved successfully.\n");
+    }
+  }
+
+  gtk_widget_destroy(dialog);
+}
+
+void copyFile(GtkWidget *widget, gpointer window)
+{
+  GtkWidget *dialog;
+  GtkWidget *file_entry, *dest_entry;
+  const gchar *filename, *destination;
+
+  dialog = gtk_dialog_new_with_buttons("Copy File", GTK_WINDOW(window),
+                                       GTK_DIALOG_MODAL, "OK", GTK_RESPONSE_OK,
+                                       "Cancel", GTK_RESPONSE_CANCEL, NULL);
+
+  file_entry = gtk_entry_new();
+  dest_entry = gtk_entry_new();
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter filename: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    file_entry);
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    gtk_label_new("Enter destination: "));
+  gtk_container_add(GTK_CONTAINER(gtk_dialog_get_content_area(GTK_DIALOG(dialog))),
+                    dest_entry);
+
+  gtk_widget_show_all(dialog);
+
+  if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_OK)
+  {
+    filename = gtk_entry_get_text(GTK_ENTRY(file_entry));
+    destination = gtk_entry_get_text(GTK_ENTRY(dest_entry));
+    char full_path[200], full_dest_path[200];
+    snprintf(full_path, sizeof(full_path), "%s/%s", file_path, filename);
+    snprintf(full_dest_path, sizeof(full_dest_path), "%s", destination);
+    char command[1024];
+    snprintf(command, sizeof(command), "cp %s %s", full_path, full_dest_path);
+    int ret = system(command);
+    if (ret != 0)
+    {
+      perror("Error copying file");
+    }
+    else
+    {
+      g_print("File copied successfully.\n");
+    }
+  }
+
+  gtk_widget_destroy(dialog);
+}
+
+void checkReturnCode(int ret)
+{
+  if (ret != 0)
+  {
+    perror("Error");
   }
   else
   {
-    GtkWidget *success_dialog =
-        gtk_message_dialog_new(NULL, GTK_DIALOG_MODAL, GTK_MESSAGE_INFO,
-                               GTK_BUTTONS_OK, "Success: Command executed!");
-    gtk_dialog_run(GTK_DIALOG(success_dialog));
-    gtk_widget_destroy(success_dialog);
+    g_print("Success.\n");
   }
 }
